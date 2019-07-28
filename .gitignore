@@ -1,0 +1,13 @@
+figures/generated/
+cache/
+*.aux
+*.auxlock
+*.bcf
+*.blg
+*.log
+*.nav
+*.out
+*.run.xml
+*.snm
+*.toc
+*.vrb

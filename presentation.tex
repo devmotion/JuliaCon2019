@@ -1,0 +1,524 @@
+% arara: lualatex: { shell: yes }
+% arara: biber
+% arara: lualatex: { shell: yes }
+% arara: lualatex: { shell: yes }
+% arara: lualatex: { shell: yes, synctex: yes }
+\documentclass[aspectratio=169]{beamer}
+
+% LuaLaTeX fixes
+\usepackage{luatex85}
+
+% Math support
+\usepackage{mathtools}
+\usepackage{empheq}
+
+% Beamer settings
+\PassOptionsToPackage{no-math}{fontspec}
+\setbeamertemplate{navigation symbols}{}
+
+% Fonts
+\usepackage{microtype}
+\usepackage{arevmath}
+\usepackage{fontspec}
+\setsansfont[
+BoldFont={Fira Sans SemiBold},
+ItalicFont={Fira Sans BookItalic},
+BoldItalicFont={Fira Sans SemiBold Italic}
+]{Fira Sans Book}
+\setmonofont{DejaVu Sans Mono}[Scale=MatchLowercase]
+
+% Language support
+\usepackage{polyglossia}
+\setmainlanguage[variant=usmax]{english}
+\usepackage{csquotes}
+
+% Links
+\usepackage{hyperref}
+
+% Tables
+\usepackage{booktabs}
+
+% Captions
+\usepackage{caption}
+
+% PGFPlots support
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.16,grid style=dashed,enlargelimits=auto}
+
+% Cache figures
+\usepgfplotslibrary{external}
+\tikzexternalize[prefix=cache/]
+
+% Use colorbrewer
+\usepgfplotslibrary{colorbrewer}
+\pgfplotsset{
+  % initialize Dark2-8:
+  cycle list/Dark2-8,
+  % combine it with ’mark list*’:
+  cycle multiindex* list={
+    mark list*\nextlist
+    Dark2-8\nextlist
+  },
+}
+
+% Support units
+\usepackage{siunitx}
+\usepgfplotslibrary{units}
+\makeatletter
+\pgfplotsset{
+  unit code/.code 2 args =
+  \begingroup
+  \protected@edef\x{\endgroup\si{#2}}\x
+}
+\makeatother
+
+% Support group plots
+\usepgfplotslibrary{groupplots}
+
+% Define data folder
+\pgfplotsset{table/search path={data/}}
+
+% Source code highlighting
+\usepackage[newfloat]{minted}
+\usepackage[many,minted]{tcolorbox}
+\tcbset{shield externalize}
+
+% Colors
+\usepackage{xcolor}
+
+\definecolor{monokai-background}{HTML}{282828} % from https://github.com/kevinsawicki/monokai
+\tcbset{myminted/juliacode/.style = {%
+    enhanced jigsaw, breakable, colback = monokai-background, boxrule = 0pt, frame hidden,
+    listing only, listing engine=minted, %
+    minted language = {lexer.py:Julia1Lexer -x},%
+    minted options = {breaklines,escapeinside=||,mathescape,autogobble,fontsize=\footnotesize},%
+    minted style = monokai, %
+  }}
+
+% Highlighting of math terms
+\makeatletter
+\def\mathcolor#1#{\@mathcolor{#1}}
+\def\@mathcolor#1#2#3{%
+  \protect\leavevmode
+  \begingroup
+    \color#1{#2}#3%
+  \endgroup
+}
+\makeatother
+
+% Change graphics path (for SVG image)
+\graphicspath{{figures/}}
+
+% \usepackage{tikzscale}
+
+% Bibliography
+\usepackage[sortcites,doi=false,isbn=false,url=false,style=authoryear,citestyle=authoryear-comp]{biblatex}
+\bibliography{references.bib}
+
+% Metadata
+\title{Solving Delay Differential Equations with Julia}
+\subtitle{DelayDiffEq}
+\author{David Widmann}
+\date{23 July 2019}
+\institute{JuliaCon 2019}
+\titlegraphic{%
+  \includegraphics[height=1.5cm]{figures/TUM_logo.pdf}%
+  \hspace{1.5cm}~%%
+  \includegraphics[height=1.5cm]{figures/UU_logo.pdf}%
+}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+\begin{frame}{How it started}
+  \begin{center}
+    \includegraphics[height=0.8\textheight]{figures/github_issue.png}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Ordinary differential equations (ODEs)}
+  \begin{equation*}
+    x'(t) = f(t, x(t))
+  \end{equation*}
+
+  \begin{block}<2->{Implicit assumption}
+    Derivative $x'(t)$ depends only on $t$ and the current state $x(t)$
+  \end{block}
+
+  \begin{alertblock}<3->{Problem}
+    In nature many changes do not occur instantaneously
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Delay differential equations (DDEs)}
+  A DDE is an ODE in which the derivative depends on past values of the state.
+
+  \only<1>{
+    \begin{equation*}
+      \phantom{x'(t) = f(t, x(t), x(t - \tau_1), \ldots, x(t - \tau_n), x'(t - \tau_{n+1}), \ldots, x'(t - \tau_{n+m}))}
+    \end{equation*}%
+  }
+
+  \only<2>{
+    \begin{equation*}
+      x'(t) = f(t, x(t), x(t - \tau))
+    \end{equation*}
+  }
+
+  \only<3>{
+    \begin{equation*}
+      x'(t) = f(t, x(t), x(t - \tau(t)))
+    \end{equation*}
+  }
+
+  \only<4>{
+    \begin{equation*}
+      x'(t) = f(t, x(t), x(t - \tau(t, x(t)))
+    \end{equation*}
+  }
+
+  \only<5>{
+    \begin{equation*}
+      x'(t) = f(t, x(t), x(t - \tau_1), \ldots, x(t - \tau_n))
+    \end{equation*}
+  }
+
+  \only<6>{
+    \begin{equation*}
+      x'(t) = f(t, x(t), x(t - \tau_1), \ldots, x(t - \tau_n), x'(t - \tau_{n+1}), \ldots, x'(t - \tau_{n+m}))
+    \end{equation*}
+  }
+\end{frame}
+
+\begin{frame}{Example: Population growth models}
+  Let $N(t)$ be the population size of a single species at time $t$.
+
+  \pause
+
+  \begin{block}{Verhulst model (Logistic equation)}
+    \begin{equation*}
+      N'(t) = r N(t) (1 - N(t) / K),
+    \end{equation*}
+    where $r$ is the growth rate and $K$ is the carrying capacity.
+  \end{block}
+
+  \pause
+
+  \begin{block}{Hutchinson's equation \parencite{hutchinson48_circul_causal_system_in_ecolog} (Delay logistic equation)}
+    \begin{equation*}
+      N'(t) = r N(t) (1 - N(t-\tau) / K)
+    \end{equation*}
+  \end{block}
+\end{frame}
+
+\begin{frame}{History function}
+  \begin{block}{ODEs}
+    Initial value problem (IVP) is of the form
+    \begin{align*}
+      x'(t) &= f(t, x(t)), && t \geq t_0,\\
+      x(t_0) &= x_0.
+    \end{align*}
+  \end{block}
+
+  \pause
+
+  \begin{block}{DDEs}
+    Initial value problem is generally of the form
+    \begin{align*}
+      x'(t) &= f(t, x(t), x(t - \tau_1), \ldots, x(t - \tau_n)), && t \geq t_0,\\
+      x(t) &= x_0(t), && t \leq t_0.
+    \end{align*}
+
+    The function $x_0$ is called the \alert{history function} (or initial function).
+  \end{block}
+\end{frame}
+
+\begin{frame}{Propagated discontinuities}
+  \begin{itemize}[<+->]
+  \item Even if $x_0$ is smooth, we usually have
+    \begin{equation*}
+      \lim_{t \uparrow t_0} x'_0(t) \neq \lim_{t \downarrow t_0} x'(t)
+    \end{equation*}
+    i.e., there exists a jump derivative discontinuity at $t_0$.
+
+  \item Discontinuities propagate in time \parencite[see, e.g.,][]{Bellen_2003}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Example: Propagated discontinuities}
+  \begin{align*}
+    x'(t) &= -x(t - 1/3) - x(t - 1/5), && t \geq 0,\\
+    x(t) &= \delta(t), && t \leq 0.
+  \end{align*}
+
+  \begin{figure}[htbp]
+    \begin{center}
+      \tikzsetnextfilename{discontinuities}
+      \pgfplotsset{width=0.9\textwidth,height=0.7\textheight}
+      \input{figures/generated/discontinuities_2delays.tex}
+    \end{center}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Dynamical structure}
+  \begin{block}{ODEs}
+    \begin{itemize}
+    \item Bounded solutions of autonomous ODEs can only oscillate if there are at least two components
+    \item Chaotic solutions only if there are at least three components
+    \end{itemize}
+  \end{block}
+
+  \pause
+
+  \begin{block}{DDEs}
+    Oscillatory and even chaotic behaviour can occur in the scalar case
+  \end{block}
+\end{frame}
+
+\begin{frame}{Example: Mackey-Glass equation}
+  Model of circulating blood cells $x(t)$ at time $t$ by \textcite{mackey77_oscil_chaos_physiol_contr_system}, given by
+  \begin{align*}
+    x'(t) &= \frac{\beta x(t-\tau)}{1 + {x(t-\tau)}^n} - \gamma x(t), \quad &&t \geq 0,\\
+    x(t) &= x_0(t), \quad &&t \in [-\tau, 0].
+  \end{align*}
+\end{frame}
+
+\begin{frame}{Example: Solution of Mackey-Glass equation}
+  \begin{figure}[hbt]
+    \begin{center}
+      \pgfplotsset{width=0.45\textwidth,height=0.7\textheight}
+      \tikzsetnextfilename{mackey_glass}%
+      \input{figures/generated/mackey_glass.tex}%
+      \tikzsetnextfilename{mackey_glass_emb}%
+      \input{figures/generated/mackey_glass_embedding.tex}
+      \caption{\label{fig:mackey_glass}Solution and time delay embedding of Mackey-Glass equation for $0 \leq t \leq 600$ with $t_0 = 0$, $x_0 \equiv 0.5$, $\beta = 2$, $n = 9.65$, and $\tau = 2$ (parameter values taken from~\textcite{glass10_mackey_glass_equat}).}
+    \end{center}
+  \end{figure}
+\end{frame}
+
+\begin{frame}[fragile]{Formulating a DDE in DelayDiffEq}
+  \begin{align*}
+    x'(t) &= - x(t - 1), && t \in [0, 10], \\
+    x(t) &= 1, && t \leq 0.
+  \end{align*}
+
+  \pause
+
+  \begin{tcblisting}{myminted/juliacode}
+    # DDE model
+    f(u, h, p, t) = - h(p, t - 1)
+    # history function
+    h(p, t) = 1.0
+    # initial value
+    u₀ = 1.0
+    # integration interval
+    tspan = (0.0, 10.0)
+
+    prob = DDEProblem(f, u₀, h, tspan)
+  \end{tcblisting}
+\end{frame}
+
+\section{Solving simple DDEs analytically}
+
+\begin{frame}{Method of Steps}
+  Consider a DDE with one constant delay:
+  \begin{align*}
+    x'(t) &= f(t, x(t), x(t-\tau)), && t \geq t_0,\\
+    x(t) &= x_0(t), && t \in [t_0 - \tau, t_0],
+  \end{align*}
+
+  \pause
+
+  \begin{block}{Solving the DDE by a sequence of ODEs}
+    \begin{itemize}[<+->]
+    \item For $n = 1,2,\ldots$, compute a solution $x_n$ of the ODE
+      \begin{align*}
+        x'(t) &= f(t, x(t), x_{n-1}(t-\tau)), && t \in [t_{n-1}, t_{n-1} + \tau],\\
+        x(t_{n-1}) &= x_{n-1}(t_{n-1}),
+      \end{align*}
+      where $t_n \coloneqq t_0 + n \tau$.
+    \item Then $x$ defined by
+      \begin{equation*}
+        x(t) \coloneqq x_n(t), \qquad t \in [t_{n-1}, t_n],
+      \end{equation*}
+      is a solution to the DDE.
+    \end{itemize}
+    \end{block}
+\end{frame}
+
+\begin{frame}{Implications}
+  \begin{block}{Consequence}
+    Results from ODE theory such as existence, uniqueness, and boundedness of solutions can be applied
+  \end{block}
+
+  \pause
+
+  \begin{block}{Note}
+    Holds even for multiple state-dependent delays as long as they are uniformly strictly greater than $0$!
+  \end{block}
+\end{frame}
+
+\begin{frame}{OrdinaryDiffEq}
+  \begin{itemize}[<+->]
+  \item Large number of highly performant native Julia solvers
+    \begin{itemize}[<1->]
+    \item Classic algorithms and ones from recent research
+    \item For stiff and non-stiff problems
+    \item \alert{Dense interpolants}
+    \end{itemize}
+  \item Support of arbitrary number types such as dual numbers, arbitrary precision numbers, and numbers with units
+  \item Additional functionality such as parameter estimation, sensitivity analysis, bifurcation analysis, and integration with Flux (neural ODEs) provided by other Julia packages
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{General setup in DelayDiffEq}
+  \begin{itemize}[<+->]
+  \item Setup a dummy ODE solver for solving $f_0(u, p, t) \coloneqq f(u, h, p, t)$
+  \item Wrap the history function $h$, the dense solution of the dummy solver, and its current integrator in an instance $\tilde{h}$ of
+    \begin{tcblisting}{myminted/juliacode}
+      struct HistoryFunction{F1,F2,F3<:ODEIntegrator} <: Function
+        h::F1
+        sol::F2
+        integrator::F3
+      end
+    \end{tcblisting}
+  \item Create the ``true'' ODE solver for solving $f_c(u, p, t) \coloneqq f(u, \tilde{h}, p, t)$
+  \item Solve the ODE with the true solver and ensure that the dummy ODE solver's value are updated after each step to match the true ODE solver
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Difficulties}
+
+  \begin{block}{Discontinuities}
+    Solution should be sufficiently smooth in each step \parencite[see][]{Bellen_2003}
+  \end{block}
+
+  \pause
+
+  \begin{block}{Unconstrained time stepping}
+    Inefficient if the step is constrained to time steps that are small relative to the integration interval
+  \end{block}
+
+  \pause
+
+  \begin{block}{Dependent delays}
+    Does not work for arbitrary time- and state-dependent delays
+  \end{block}
+\end{frame}
+
+\begin{frame}{What we do in DelayDiffEq}
+  \begin{block}{Discontinuities}
+    \begin{itemize}
+    \item Track discontinuities up to the order of the solver
+    \item Hit these discontinuities by using existing functionality in OrdinaryDiffEq
+    \end{itemize}
+  \end{block}
+
+  \pause
+
+  \begin{block}{Unconstrained time stepping}
+    If the delay is smaller than the time step, we perform fixed-point iteration
+  \end{block}
+
+  \pause
+
+  \begin{block}{Dependent delays}
+    If a step is rejected, we try to find dependent delays in the current time step
+  \end{block}
+\end{frame}
+
+\begin{frame}{Example: Quorum Sensing (QS) model}
+  \vspace*{-1.5ex}
+  \begin{figure}[hbp]
+    \begin{center}
+      \tikzsetnextfilename{qs_comparison}
+      \input{figures/generated/qs_comparison.tex}
+      \vspace*{-1.5ex}
+      \caption{\label{fig:qs_comparison}Numerical simulations of the QS model with parameter estimates of experiment CC2~\parencite{buddrus-schiemann14_analy_n_acylh_lacton_dynam}, using different method of steps algorithms.}
+    \end{center}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Example: Waltman's model}
+
+  Model of antibody production by \textcite{waltman1978}, given by
+  \begin{align*}
+    x_1'(t) &= - r x_1(t) x_2(t) - s x_1(t) x_4(t), \\
+    x_2'(t) &= - r x_1(t) x_2(t) + \alpha r x_1(x_5(t)) x_2(x_5(t)) H(t - t_0), \\
+    x_3'(t) &= r x_1(t) x_2(t), \\
+    x_4'(t) &= - s x_1(t) x_4(t) - \gamma x_4(t) + \beta r x_1(x_6(t)) x_2(x_6(t)) H(t - t_1), \\
+    x_5'(t) &= H(t - t_0) \frac{x_1(t) x_2(t) + x_3(t)}{x_1(x_5(t)) x_2(x_5(t)) + x_3(x_5(t))}, \\
+    x_6'(t) &= H(t - t_1) \frac{10^{-12} + x_2(t) + x_3(t)}{10^{-12} + x_2(x_6(t)) + x_3(x_6(t))},
+  \end{align*}
+  where $H$ is the Heavyside step function with $H(t) = 0$ if $t < 0$ and $H(t) = 1$ if $t \geq 0$.
+\end{frame}
+
+\begin{frame}{Example: Simulation of Waltman's model}
+  \begin{figure}[htbp]
+    \begin{center}
+      \tikzsetnextfilename{waltman}
+      \input{figures/generated/waltman.tex}
+      \caption{\label{fig:waltman}Numerical simulations of Waltman's model using \texttt{Rosenbrock23} (dashed lines) and RADAR5 (solid lines) with parameters $\alpha = 1.8$, $\beta = 20$, $\gamma = 0.002$, $r = 5 \times 10^4$, $s = 10^5$, $t_0 = 35$, $t_1 = 197$, and $x(t) = [0.5 \times 10^{-5}, 10^{-15}, 0, 0, 0, 0]$ for $t \leq 0$.}
+    \end{center}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Summary}
+  \begin{block}{Current features}
+    \begin{itemize}[<+->]
+    \item Solvers for both non-stiff and stiff DDEs
+    \item Discontinuity tracking for dependent delays
+    \item Support for neutral DDEs
+    \item Event handling
+    \item Additional functionality such as parameter estimation and integration with Flux provided by external packages
+    \end{itemize}
+  \end{block}
+
+  \begin{block}<+->{Future directions}
+    \begin{itemize}
+    \item Use of Anderson Acceleration for fixed-point iterations
+    \item<+-> More extensive benchmarking, also against existing DDE solvers
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+\begin{frame}{Acknowledgements}
+  \begin{columns}[t]
+    \column{0.5\textwidth}
+    All contributors of DelayDiffEq, namely
+    \begin{itemize}
+    \item Chris Rackauckas
+    \item Yingbo Ma
+    \item Kanav Gupta
+    \item Takafumi Arakaki
+    \item Elliot Saba
+    \item Anshul Singhvi
+    \item Alfonso Landeros
+    \item Vaibhav Kumar Dixit
+    \item Scott P.\ Jones
+    \item femtocleaner
+    \end{itemize}
+
+    \pause
+
+    \column{0.5\textwidth}
+    All contributors of JuliaDiffEq
+
+    \begin{figure}
+      \begin{center}
+        \includegraphics[width=0.5\linewidth]{figures/juliadiffeq.png}
+      \end{center}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\appendix
+
+\begin{frame}[fragile,allowframebreaks]{References}
+  \printbibliography[heading=none]
+\end{frame}
+
+\end{document}
